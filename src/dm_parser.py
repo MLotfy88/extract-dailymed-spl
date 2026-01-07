@@ -469,18 +469,45 @@ def process(xml_files):
 
             sections = soup.find_all("section")
             for section in sections:
-                for code in section.find_all("code", attrs={"code": "34067-9"}):
-                    # Replace the matching sequences with a single newline
-                    text = "###\n".join(section.text)
-                    row = {
-                        "set_id": set_id,
-                        "xml_id": xml_id,
-                        "version_number": version_number,
-                        "type": "indication",
-                        "length": len(text),
-                        "text": text.split(),
-                    }
-                    indications.append(row)
+                # 34067-9: Indications
+                # 34068-7: Dosage and Administration
+                # 25428-4: Dosage Forms and Strengths
+                # 43678-2: Instructions for Use (Patient Friendly)
+                # 69759-9: Medication Guide (Patient Friendly)
+                # 59845-8: Instructions for Preparation (Reconstitution)
+                # 55106-9: Overdosage (Safety Limits)
+                target_codes = [
+                    "34067-9", "34068-7", "25428-4", 
+                    "43678-2", "69759-9", "59845-8", "55106-9"
+                ]
+                
+                for code_node in section.find_all("code"):
+                     code_val = code_node.get("code")
+                     if code_val in target_codes:
+                        # Determine type based on code
+                        section_type = "unknown"
+                        if code_val == "34067-9": section_type = "indications"
+                        elif code_val == "34068-7": section_type = "dosage_and_administration"
+                        elif code_val == "25428-4": section_type = "dosage_forms"
+                        elif code_val == "43678-2": section_type = "instructions_for_use"
+                        elif code_val == "69759-9": section_type = "medication_guide"
+                        elif code_val == "59845-8": section_type = "preparation_instructions"
+                        elif code_val == "55106-9": section_type = "overdosage"
+
+                        # Extract text with improved formatting
+                        # Preserve simple structure if possible, but for now raw text with markers
+                        text = "###\n".join(section.stripped_strings)
+                        
+                        row = {
+                            "set_id": set_id,
+                            "xml_id": xml_id,
+                            "version_number": version_number,
+                            "type": section_type,
+                            "code": code_val,
+                            "length": len(text),
+                            "text": text,
+                        }
+                        indications.append(row)
 
     # Creating a csv dict writer object
     with open(f"{result_dir}/indications.csv", "w") as csvfile:

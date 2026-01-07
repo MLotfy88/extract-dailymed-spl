@@ -467,6 +467,39 @@ def process(xml_files):
             xml_id = soup.id["root"]
             version_number = soup.versionNumber["value"]
 
+            # --- Extract Drug Names (New Logic) ---
+            proprietary_name = "Unknown"
+            generic_name = "Unknown"
+            
+            # Try to find manufactured product name (Trade Name)
+            # Standard path: manufacturedProduct -> manufacturedProduct -> name
+            product_node = soup.find("manufacturedProduct")
+            if product_node:
+                man_prod_inner = product_node.find("manufacturedProduct")
+                if man_prod_inner:
+                    name_node = man_prod_inner.find("name", recursive=False)
+                    if name_node:
+                        proprietary_name = name_node.get_text(strip=True)
+                    
+                    # Try to find generic name
+                    # Standard path: ... -> asEntityWithGeneric -> genericMedicine -> name
+                    generic_entity = man_prod_inner.find("asEntityWithGeneric")
+                    if generic_entity:
+                        generic_med = generic_entity.find("genericMedicine")
+                        if generic_med:
+                            gen_name_node = generic_med.find("name")
+                            if gen_name_node:
+                                generic_name = gen_name_node.get_text(strip=True)
+            
+            # Fallback for Generic Name (Active Moiety)
+            if generic_name == "Unknown":
+                active_moiety = soup.find("activeMoiety")
+                if active_moiety:
+                    am_name = active_moiety.find("name")
+                    if am_name:
+                        generic_name = am_name.get_text(strip=True)
+            # ---------------------------------------
+
             sections = soup.find_all("section")
             for section in sections:
                 # 34067-9: Indications
@@ -502,6 +535,8 @@ def process(xml_files):
                             "set_id": set_id,
                             "xml_id": xml_id,
                             "version_number": version_number,
+                            "proprietary_name": proprietary_name, # Added field
+                            "generic_name": generic_name,         # Added field
                             "type": section_type,
                             "code": code_val,
                             "length": len(text),
@@ -511,7 +546,7 @@ def process(xml_files):
 
     # Creating a csv dict writer object
     with open(f"{result_dir}/indications.csv", "w") as csvfile:
-        fields = ["set_id", "xml_id", "version_number", "type", "length", "text"]
+        fields = ["set_id", "xml_id", "version_number", "proprietary_name", "generic_name", "type", "code", "length", "text"]
         writer = csv.DictWriter(csvfile, fieldnames=fields, delimiter=",")
         writer.writeheader()
         writer.writerows(indications)

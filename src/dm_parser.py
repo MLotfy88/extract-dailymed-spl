@@ -552,6 +552,151 @@ def process(xml_files):
         writer.writerows(indications)
 
 
+def run_sequential_pipeline(files_dict):
+    """
+    Process each file part sequentially: Download -> Extract -> Parse -> Append to CSV -> Cleanup.
+    This avoids filling up the disk with all zips/xmls at once.
+    """
+    paths = getPaths()
+    result_csv = f"{paths['result_dir']}/indications.csv"
+    
+    # Initialize CSV with header
+    fields = ["set_id", "xml_id", "version_number", "proprietary_name", "generic_name", "type", "code", "length", "text"]
+    with open(result_csv, "w", newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fields)
+        writer.writeheader()
+
+    for filename, metadata in files_dict.items():
+        print(f"\n[Pipeline] Starting {filename}...")
+        
+        # 1. Download
+        if str(args.download) == "True":
+            # Create a localized dict for just this file to reuse existing download func
+            single_file_dict = {filename: metadata}
+            # This function updates metadata in place and downloads file
+            download(single_file_dict)
+            
+            # Verify download
+            if not os.path.exists(metadata.filepath):
+                print(f"Failed to download {filename}, skipping.")
+                continue
+
+        # 2. Extract
+        xml_files_batch = {}
+        if str(args.extract) == "True":
+            # Extract only this zip
+            # We assume extract() was modified or we call a helper. 
+            # The current extract() loops through ALL 'files'.
+            # We'll call extract on just this one.
+            xml_files_batch = extract({filename: metadata})
+            
+            # cleanup ZIP to save space
+            try:
+                os.remove(metadata.filepath)
+                print(f"Deleted ZIP: {metadata.filepath}")
+            except OSError as e:
+                print(f"Error deleting ZIP {metadata.filepath}: {e}")
+
+        # 3. Process & Append
+        if str(args.process) == "True" and xml_files_batch:
+            # Process these XMLs and get rows
+            # We need a modified process() that returns rows instead of writing file
+            # OR we inline the logic here.
+            # Refactoring 'process' to 'parse_xmls_to_rows' is cleaner.
+            
+            rows = parse_xmls_to_rows(xml_files_batch)
+            
+            # Append to CSV
+            if rows:
+                with open(result_csv, "a", newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fields)
+                    writer.writerows(rows)
+                print(f"Appended {len(rows)} rows to CSV.")
+            
+            # Cleanup XMLs
+            for xml_path in xml_files_batch:
+                try:
+                    os.remove(xml_path)
+                except OSError:
+                    pass
+            print(f"Cleaned up extracted XMLs for {filename}")
+
+def parse_xmls_to_rows(xml_files):
+    """
+    Parses a batch of XML files and returns list of dicts.
+    Refactored from original process() function.
+    """
+    indications = []
+    
+    # Existing logic from process(), simplified
+    for file, metadata in xml_files.items():
+        path = metadata.filepath
+        try:
+            with gzip.open(path, "rb") as f:
+                xml_string = f.read()
+                soup = BeautifulSoup(xml_string, "xml")
+
+                set_id = soup.setId["root"]
+                xml_id = soup.id["root"]
+                version_number = soup.versionNumber["value"]
+
+                # --- Extract Drug Names ---
+                proprietary_name = "Unknown"
+                generic_name = "Unknown"
+                product_node = soup.find("manufacturedProduct")
+                if product_node:
+                    man_prod_inner = product_node.find("manufacturedProduct")
+                    if man_prod_inner:
+                        name_node = man_prod_inner.find("name", recursive=False)
+                        if name_node: proprietary_name = name_node.get_text(strip=True)
+                        generic_entity = man_prod_inner.find("asEntityWithGeneric")
+                        if generic_entity:
+                            generic_med = generic_entity.find("genericMedicine")
+                            if generic_med:
+                                gen_name_node = generic_med.find("name")
+                                if gen_name_node: generic_name = gen_name_node.get_text(strip=True)
+                
+                if generic_name == "Unknown":
+                    active_moiety = soup.find("activeMoiety")
+                    if active_moiety:
+                        am_name = active_moiety.find("name")
+                        if am_name: generic_name = am_name.get_text(strip=True)
+                # --------------------------
+
+                sections = soup.find_all("section")
+                for section in sections:
+                    target_codes = ["34067-9", "34068-7", "25428-4", "43678-2", "69759-9", "59845-8", "55106-9"]
+                    for code_node in section.find_all("code"):
+                         code_val = code_node.get("code")
+                         if code_val in target_codes:
+                            section_type = "unknown"
+                            if code_val == "34067-9": section_type = "indications"
+                            elif code_val == "34068-7": section_type = "dosage_and_administration"
+                            elif code_val == "25428-4": section_type = "dosage_forms"
+                            elif code_val == "43678-2": section_type = "instructions_for_use"
+                            elif code_val == "69759-9": section_type = "medication_guide"
+                            elif code_val == "59845-8": section_type = "preparation_instructions"
+                            elif code_val == "55106-9": section_type = "overdosage"
+
+                            text = "###\n".join(section.stripped_strings)
+                            
+                            row = {
+                                "set_id": set_id,
+                                "xml_id": xml_id,
+                                "version_number": version_number,
+                                "proprietary_name": proprietary_name,
+                                "generic_name": generic_name,
+                                "type": section_type,
+                                "code": code_val,
+                                "length": len(text),
+                                "text": text,
+                            }
+                            indications.append(row)
+        except Exception as e:
+            print(f"Error parsing {path}: {e}")
+            
+    return indications
+
 if __name__ == "__main__":
     startTime = time.time()
     argParser = argparse.ArgumentParser(
@@ -560,59 +705,21 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     data_source = "dailymed"
-    argParser.add_argument(
-        "-w",
-        "--working_dir",
-        default="/data/" + data_source,
-        help="Directory to download files into",
-    )
-    argParser.add_argument(
-        "-d",
-        "--download",
-        default=True,
-        help="Download content, if it hasn't already been downloaded.",
-    )
-    argParser.add_argument(
-        "-f",
-        "--force",
-        default=False,
-        action="store_true",
-        help="Replace files, even if they were previously downloaded",
-    )
-    argParser.add_argument(
-        "-a",
-        "--date",
-        default=getCurrentDate(),
-        help="Use data from specified date in format of YYYY-MM-DD",
-    )
-    argParser.add_argument(
-        "-s",
-        "--files",
-        default="prescription",
-        help="Specify a comma-separated list of the files to download/process, or \
-            indicate to process prescription or otc subsets, or both. \
-            options: all|prescription|otc",
-    )
-    argParser.add_argument(
-        "-e", "--extract", default=True, help="Extract XML files from download files"
-    )
-    argParser.add_argument(
-        "-p", "--process", default=True, help="Extract XML files from download files"
-    )
+    argParser.add_argument("-w", "--working_dir", default="/data/" + data_source, help="Directory to download files into")
+    argParser.add_argument("-d", "--download", default=True, help="Download content")
+    argParser.add_argument("-f", "--force", default=False, action="store_true", help="Replace files")
+    argParser.add_argument("-a", "--date", default=getCurrentDate(), help="Use data from specified date")
+    argParser.add_argument("-s", "--files", default="all", help="options: all|prescription|otc") # Changed default to ALL
+    argParser.add_argument("-e", "--extract", default=True, help="Extract XML files")
+    argParser.add_argument("-p", "--process", default=True, help="Process to CSV")
+    
     args = argParser.parse_args()
 
-    # get file list from command line, or the default set
+    # get file list
     files = checkFiles(makeFileList())
 
-    if str(args.download) == "True":
-        files = download(files)
-
-    xml_files = {}
-    if str(args.extract) == "True":
-        xml_files = extract(files)
-
-    if str(args.process) == "True":
-        process(xml_files)
+    # USE SEQUENTIAL PIPELINE for Disk Efficiency
+    run_sequential_pipeline(files)
 
     executionTime = time.time() - startTime
     print(f"Execution time: {executionTime} seconds")

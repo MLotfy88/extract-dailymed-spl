@@ -1,0 +1,81 @@
+name: DailyMed SPL Extractor (Full + Resume)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  dailymed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      # ======================================
+      # Checkout repo + submodules + LFS
+      # ======================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup Git LFS
+        run: git lfs install
+
+      # ======================================
+      # Restore cache (resume state)
+      # ======================================
+      - name: Restore DailyMed cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data
+            working_dir
+            cache
+            **/*.db
+            **/*.zip
+            **/*.xml
+          key: dailymed-spl-${{ github.run_id }}
+          restore-keys: |
+            dailymed-spl-
+
+      # ======================================
+      # Setup Python
+      # ======================================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ======================================
+      # Install project (editable mode)
+      # ======================================
+      - name: Install extractor
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      # ======================================
+      # Run DailyMed parser (REAL ENTRYPOINT)
+      # ======================================
+      - name: Run DailyMed parser
+        run: |
+          python src/dm_parser.py \
+            --download true \
+            --extract true \
+            --process true \
+            --files all
+        continue-on-error: true
+
+      # ======================================
+      # Upload results (for inspection)
+      # ======================================
+      - name: Upload extracted data
+        uses: actions/upload-artifact@v4
+        with:
+          name: dailymed-output
+          path: |
+            data
+            working_dir

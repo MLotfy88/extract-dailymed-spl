@@ -604,14 +604,14 @@ if __name__ == "__main__":
     # get file list from command line, or the default set
     files = checkFiles(makeFileList())
 
-    if args.download == "True":
+    if str(args.download) == "True":
         files = download(files)
 
     xml_files = {}
-    if args.extract == "True":
+    if str(args.extract) == "True":
         xml_files = extract(files)
 
-    if args.process == "True":
+    if str(args.process) == "True":
         process(xml_files)
 
     executionTime = time.time() - startTime

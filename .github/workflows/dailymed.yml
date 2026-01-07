@@ -1,19 +1,16 @@
-name: DailyMed SPL Extractor (Full + Resume, No Editable Install)
+name: DailyMed SPL Extractor (No Hatchling Install)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"  # تشغيل يومي الساعة 3 صباحًا
+    - cron: "0 3 * * *"
 
 jobs:
   dailymed:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 ساعات
+    timeout-minutes: 360
 
     steps:
-      # ======================================
-      # Checkout repo + submodules + Git LFS
-      # ======================================
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -24,9 +21,6 @@ jobs:
       - name: Setup Git LFS
         run: git lfs install
 
-      # ======================================
-      # Restore cache for resume
-      # ======================================
       - name: Restore cache
         uses: actions/cache@v4
         with:
@@ -41,37 +35,21 @@ jobs:
           restore-keys: |
             dailymed-spl-
 
-      # ======================================
-      # Setup Python
-      # ======================================
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      # ======================================
-      # Install project (normal install)
-      # ======================================
-      - name: Install dependencies
+      - name: Install dependencies only
         run: |
           python -m pip install --upgrade pip
-          pip install .
+          pip install -r requirements.txt
 
-      # ======================================
-      # Run DailyMed parser (download + extract + process)
-      # ======================================
       - name: Run DailyMed parser
         run: |
-          python src/dm_parser.py \
-            --download true \
-            --extract true \
-            --process true \
-            --files all
+          python src/dm_parser.py --download true --extract true --process true --files all
         continue-on-error: true
 
-      # ======================================
-      # Upload artifacts (progress / results)
-      # ======================================
       - name: Upload extracted data
         uses: actions/upload-artifact@v4
         with:

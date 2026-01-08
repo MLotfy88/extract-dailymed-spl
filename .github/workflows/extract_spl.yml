@@ -44,8 +44,8 @@ jobs:
         git config --global user.email "actions@github.com"
         # We might have very large CSVs, better to use git lfs or simple add if <100MB
         # indications.csv could be large. 
-        # For now standard git add.
-        git add data/dailymed/results/*.csv
+        # For now standard git add -f to bypass .gitignore
+        git add -f data/dailymed/results/*.csv
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else

@@ -573,11 +573,13 @@ def run_sequential_pipeline(files_dict):
         if str(args.download) == "True":
             # Create a localized dict for just this file to reuse existing download func
             single_file_dict = {filename: metadata}
-            # This function updates metadata in place and downloads file
-            download(single_file_dict)
+            # This function returns UPDATED dict with new metadata (including filepath)
+            single_file_dict = download(single_file_dict)
+            # Update local metadata reference
+            metadata = single_file_dict[filename]
             
             # Verify download
-            if not os.path.exists(metadata.filepath):
+            if not metadata.filepath or not os.path.exists(metadata.filepath):
                 print(f"Failed to download {filename}, skipping.")
                 continue
 

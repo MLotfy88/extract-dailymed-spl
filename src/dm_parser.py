@@ -558,27 +558,19 @@ def run_sequential_pipeline(files_dict):
     This avoids filling up the disk with all zips/xmls at once.
     """
     paths = getPaths()
-    result_csv = f"{paths['result_dir']}/indications.csv"
     
-    # Initialize CSV with header
+    # Common fields
     fields = ["set_id", "xml_id", "version_number", "proprietary_name", "generic_name", "type", "code", "length", "text"]
-    with open(result_csv, "w", newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fields)
-        writer.writeheader()
 
     for filename, metadata in files_dict.items():
         print(f"\n[Pipeline] Starting {filename}...")
         
         # 1. Download
         if str(args.download) == "True":
-            # Create a localized dict for just this file to reuse existing download func
             single_file_dict = {filename: metadata}
-            # This function returns UPDATED dict with new metadata (including filepath)
             single_file_dict = download(single_file_dict)
-            # Update local metadata reference
             metadata = single_file_dict[filename]
             
-            # Verify download
             if not metadata.filepath or not os.path.exists(metadata.filepath):
                 print(f"Failed to download {filename}, skipping.")
                 continue
@@ -586,34 +578,26 @@ def run_sequential_pipeline(files_dict):
         # 2. Extract
         xml_files_batch = {}
         if str(args.extract) == "True":
-            # Extract only this zip
-            # We assume extract() was modified or we call a helper. 
-            # The current extract() loops through ALL 'files'.
-            # We'll call extract on just this one.
             xml_files_batch = extract({filename: metadata})
-            
-            # cleanup ZIP to save space
             try:
                 os.remove(metadata.filepath)
                 print(f"Deleted ZIP: {metadata.filepath}")
             except OSError as e:
                 print(f"Error deleting ZIP {metadata.filepath}: {e}")
 
-        # 3. Process & Append
+        # 3. Process & Write to Individual GZ CSV
         if str(args.process) == "True" and xml_files_batch:
-            # Process these XMLs and get rows
-            # We need a modified process() that returns rows instead of writing file
-            # OR we inline the logic here.
-            # Refactoring 'process' to 'parse_xmls_to_rows' is cleaner.
-            
             rows = parse_xmls_to_rows(xml_files_batch)
             
-            # Append to CSV
             if rows:
-                with open(result_csv, "a", newline='', encoding='utf-8') as csvfile:
-                    writer = csv.DictWriter(csvfile, fieldnames=fields)
+                # Output file name based on input zip name
+                output_gz = f"{paths['result_dir']}/{filename}.csv.gz"
+                
+                print(f"Writing {len(rows)} rows to {output_gz}...")
+                with gzip.open(output_gz, "wt", newline='', encoding='utf-8') as gzfile:
+                    writer = csv.DictWriter(gzfile, fieldnames=fields)
+                    writer.writeheader()
                     writer.writerows(rows)
-                print(f"Appended {len(rows)} rows to CSV.")
             
             # Cleanup XMLs
             for xml_path in xml_files_batch:

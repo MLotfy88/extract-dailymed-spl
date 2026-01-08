@@ -45,7 +45,7 @@ jobs:
         # We might have very large CSVs, better to use git lfs or simple add if <100MB
         # indications.csv could be large. 
         # For now standard git add -f to bypass .gitignore
-        git add -f data/dailymed/results/*.csv
+        git add -f data/dailymed/results/*.csv.gz
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else

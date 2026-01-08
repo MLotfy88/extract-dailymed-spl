@@ -705,7 +705,7 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     data_source = "dailymed"
-    argParser.add_argument("-w", "--working_dir", default="/data/" + data_source, help="Directory to download files into")
+    argParser.add_argument("-w", "--working_dir", default="data/" + data_source, help="Directory to download files into")
     argParser.add_argument("-d", "--download", default=True, help="Download content")
     argParser.add_argument("-f", "--force", default=False, action="store_true", help="Replace files")
     argParser.add_argument("-a", "--date", default=getCurrentDate(), help="Use data from specified date")
